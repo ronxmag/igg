@@ -26,7 +26,7 @@ CREATE TABLE IF NOT EXISTS server (
 CREATE UNIQUE INDEX IF NOT EXISTS ux_server_identifier ON server (identifier);
 
 INSERT INTO server (id, name, identifier, ip_address, server_limit)
-VALUES (1, 'Tempest', 'KAL3jcIzqGgKvOf1dbYZKC8cS', '127.1.1.110', 250)
+VALUES (1, 'SoloLeveling', 'KAL3jcIzqGgKvOf1dbYZKC8cS', '127.1.1.120', 250)
 ON CONFLICT (identifier) DO UPDATE
 SET name = EXCLUDED.name,
     ip_address = EXCLUDED.ip_address,
@@ -197,9 +197,9 @@ CREATE TABLE IF NOT EXISTS character_base (
     "Map" smallint NOT NULL DEFAULT 1,
     "Pos_X" real NOT NULL DEFAULT 165.0,
     "Pos_Z" real NOT NULL DEFAULT -97.0,
-    "Money" integer NOT NULL DEFAULT 10000,
-    "Stone" integer NOT NULL DEFAULT 10,
-    "SkillPoint" integer NOT NULL DEFAULT 10,
+    "Money" integer NOT NULL DEFAULT 100000,
+    "Stone" integer NOT NULL DEFAULT 100000,
+    "SkillPoint" integer NOT NULL DEFAULT 700000,
     "SkillExp" integer NOT NULL DEFAULT 0,
     holy_suit_points integer NOT NULL DEFAULT 0,
     "MaxHP" integer NOT NULL DEFAULT 1500,
