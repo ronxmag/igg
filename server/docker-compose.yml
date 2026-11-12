@@ -5,11 +5,11 @@ services:
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-godswar}
       POSTGRES_USER: ${POSTGRES_USER:-godswar}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-godswar_dev_password}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-letmein12}
     ports:
-      - "${GODSWAR_POSTGRES_HOST_BIND_ADDRESS:-127.0.0.1}:${POSTGRES_PORT:-5432}:5432"
+      - "${GODSWAR_POSTGRES_HOST_BIND_ADDRESS:-0.0.0.0}:${POSTGRES_PORT:-5432}:5432"
     volumes:
-      - godswar-postgres-data:/var/lib/postgresql/data
+      - godswar-postgres-data:/var/lib/docker/volumes/godswar_godswar-postgres-data/_data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 5s
@@ -36,12 +36,12 @@ services:
       # logging only; no packet or game behaviour depends on it.
       GODSWAR_LOCAL_GAMEPLAY_LOGS: ${GODSWAR_LOCAL_GAMEPLAY_LOGS:-false}
       GODSWAR_STORAGE_PROVIDER: postgres
-      GODSWAR_POSTGRES_CONNECTION_STRING: "Host=postgres;Port=5432;Database=${POSTGRES_DB:-godswar};Username=${POSTGRES_USER:-godswar};Password=${POSTGRES_PASSWORD:-godswar_dev_password};Pooling=true"
+      GODSWAR_POSTGRES_CONNECTION_STRING: "Host=postgres;Port=5432;Database=${POSTGRES_DB:-godswar};Username=${POSTGRES_USER:-godswar};Password=${POSTGRES_PASSWORD:-letmein12};Pooling=true"
       GODSWAR_LOGIN_BIND_HOST: 0.0.0.0
       GODSWAR_LOGIN_PORT: 5999
       GODSWAR_GAME_BIND_HOST: 0.0.0.0
       GODSWAR_GAME_PORT: 7000
-      GODSWAR_GAME_PUBLIC_HOST: ${GODSWAR_GAME_PUBLIC_HOST:-127.1.1.110}
+      GODSWAR_GAME_PUBLIC_HOST: ${GODSWAR_GAME_PUBLIC_HOST:-127.1.1.120}
       GODSWAR_MONSTER_RUNTIME: ${GODSWAR_MONSTER_RUNTIME:-Ecs}
       GODSWAR_PLAYER_RUNTIME: ${GODSWAR_PLAYER_RUNTIME:-Ecs}
       GODSWAR_AUTH_ALLOW_LEGACY_RAW_AUTHENTICATION: "true"
@@ -62,8 +62,8 @@ services:
       # praying stones are only taken Monday to Friday.
       GODSWAR_ZEUS_STONE_ANY_DAY: ${GODSWAR_ZEUS_STONE_ANY_DAY:-false}
     ports:
-      - "127.1.1.110:${GODSWAR_LOGIN_HOST_PORT:-5999}:5999"
-      - "127.1.1.110:${GODSWAR_GAME_HOST_PORT:-7000}:7000"
+      - "127.1.1.120:${GODSWAR_LOGIN_HOST_PORT:-5999}:5999"
+      - "127.1.1.120:${GODSWAR_GAME_HOST_PORT:-7000}:7000"
     healthcheck:
       test: ["CMD", "/app/secure-healthcheck.sh"]
       interval: 10s
