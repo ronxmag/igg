@@ -14,16 +14,14 @@ internal readonly record struct WishingPoolUsage(
     /// <summary>
     /// The client allows three free wishes per day.
     /// </summary>
-    public const int DailyLimit = 3;
+    public const int DailyLimit = 10;
 
     /// <summary>
     /// The client allows one free wish per hour.
     /// </summary>
-    public static readonly TimeSpan Interval = TimeSpan.FromHours(1);
+    public static readonly TimeSpan Interval = TimeSpan.FromSeconds(1);
 
-    // ROUND2: cap.wishing_pool_daily (stock 3).
-    public int Remaining => Math.Max(0, (int)Application.Rates.ServerRates.Current.Absolute(
-        Application.Rates.ServerRateKeys.WishingPoolDaily) - UsedCount);
+    public int Remaining => Math.Max(0, DailyLimit - UsedCount);
 }
 
 /// <summary>
