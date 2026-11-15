@@ -135,7 +135,7 @@ internal sealed partial class PostgresPetDurableCommandExecutor
               AND rarity_added_savvy IS NOT NULL
               AND birth_initial_savvy = rarity_added_savvy
               AND initial_savvy > 0
-              AND growth_acceleration >= 2
+              AND growth_acceleration >= 0
               AND added_savvy =
                     (base_growth_rate + growth_acceleration) * @level
               AND revision >= 0;
