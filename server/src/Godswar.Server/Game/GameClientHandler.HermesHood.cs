@@ -12,7 +12,6 @@ namespace Godswar.Server.Game;
 internal sealed partial class GameClientHandler
 {
     private CancellationTokenSource? _hermesHoodExpiry;
-    private Task? _hermesHoodExpiryTask; // W14: joined at session end, before the state gate is disposed
 
     private async Task<bool> UseHermesHoodAsync(CancellationToken cancellationToken)
     {
@@ -47,7 +46,7 @@ internal sealed partial class GameClientHandler
         string? label = null,
         bool framed = true)
     {
-        if (_character is null || !HermesHoods.IsActive(_character.Id))
+        if (_character is null || !HermesHoods.NeedsViewerCampProjection(_character))
         {
             return _registry.BroadcastToMapAsync(mapId, build(null), cancellationToken, _session, label, framed);
         }
@@ -67,7 +66,7 @@ internal sealed partial class GameClientHandler
     /// </summary>
     private Func<GameSessionContext, byte[]>? HermesHoodSpawnFrames(byte[] spawnPacket)
     {
-        if (_character is not { } character || !HermesHoods.IsActive(character.Id))
+        if (_character is not { } character || !HermesHoods.NeedsViewerCampProjection(character))
         {
             return null;
         }
@@ -90,7 +89,8 @@ internal sealed partial class GameClientHandler
             return;
         }
 
-        await StopHermesHoodExpiryAsync(); // W14: cancel, join and dispose, not just cancel
+        _hermesHoodExpiry?.Cancel();
+        _hermesHoodExpiry = null;
         var removed = await RunEventsNpcAsync(async tx =>
         {
             await tx.ScalarAsync("DELETE FROM public.hermes_hood_state WHERE character_id = @c;");
@@ -109,20 +109,11 @@ internal sealed partial class GameClientHandler
             return;
         }
 
-        // W14: the previous timer is cancelled and its source disposed once its task ends (it may be the
-        // caller itself, so it is not awaited here).
-        var previous = _hermesHoodExpiry;
-        var previousTask = _hermesHoodExpiryTask;
-        previous?.Cancel();
-        if (previous is not null)
-        {
-            _ = (previousTask ?? Task.CompletedTask).ContinueWith(
-                _ => previous.Dispose(), TaskScheduler.Default);
-        }
+        _hermesHoodExpiry?.Cancel();
         var lifetime = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         _hermesHoodExpiry = lifetime;
         var characterId = _character.Id;
-        _hermesHoodExpiryTask = Task.Run(async () =>
+        _ = Task.Run(async () =>
         {
             try
             {
@@ -152,39 +143,5 @@ internal sealed partial class GameClientHandler
                 Console.Error.WriteLine($"[hermes-hood] expiry refresh failed: {error.GetType().Name}: {error.Message}");
             }
         });
-    }
-
-    /// <summary>
-    /// W14: session end. The expiry timer waits on <c>_characterStateGate</c>, so it is cancelled and joined before
-    /// the gate is disposed; before W14 a hood still running at logout fired later and logged
-    /// "expiry refresh failed: ObjectDisposedException ... SemaphoreSlim". The hood itself is kept (state row and
-    /// <see cref="HermesHoods"/>), so a relog inside the 30 minutes still shows it and re-arms the timer.
-    /// </summary>
-    private async Task StopHermesHoodExpiryAsync()
-    {
-        var cancellation = _hermesHoodExpiry;
-        var task = _hermesHoodExpiryTask;
-        _hermesHoodExpiry = null;
-        _hermesHoodExpiryTask = null;
-        if (cancellation is null)
-        {
-            return;
-        }
-
-        cancellation.Cancel();
-        try
-        {
-            if (task is not null)
-            {
-                await task;
-            }
-        }
-        catch (OperationCanceledException)
-        {
-        }
-        finally
-        {
-            cancellation.Dispose();
-        }
     }
 }
