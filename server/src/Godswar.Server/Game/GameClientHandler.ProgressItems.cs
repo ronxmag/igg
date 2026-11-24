@@ -128,10 +128,35 @@ internal sealed partial class GameClientHandler
             {
                 if (StatusItemPolicy.TryResolve(RequireItemContent().Templates, evidence.ItemTemplateId, out var statusItem))
                 {
-                    await _registry.ApplyRuntimeStatusAndPublishAsync(_session, statusItem, DateTimeOffset.UtcNow,
-                        "status-item", token);
-                    if (StatusItemPolicy.IsPeace(evidence.ItemTemplateId))
-                        _character.PeaceUntil = DateTimeOffset.UtcNow + statusItem.Duration;
+                    var now = DateTimeOffset.UtcNow;
+                    var previousPeaceUntil = _character.PeaceUntil;
+                    var appliesPeace = StatusItemPolicy.IsPeace(evidence.ItemTemplateId);
+                    if (appliesPeace)
+                    {
+                        // Set protection before publication so PvP-map wire
+                        // projection can suppress the client-blocking icon.
+                        _character.PeaceUntil = now + statusItem.Duration;
+                    }
+
+                    var applied = await _registry.ApplyRuntimeStatusAndPublishAsync(
+                        _session,
+                        statusItem,
+                        now,
+                        "status-item",
+                        token);
+                    if (appliesPeace && !applied)
+                    {
+                        _character.PeaceUntil = previousPeaceUntil;
+                    }
+                    else if (appliesPeace &&
+                             _registry.TrainingDummySpawnPkMode(_character) == 1)
+                    {
+                        // Refresh remote player objects: existing viewers must
+                        // receive hostile PK mode after peace is used on a PvP map.
+                        await BroadcastEquipmentRefreshAsync(
+                            "peace-status-pvp-map",
+                            token);
+                    }
                 }
             }
             else if (firstCommit && evidence.Kind == ProgressItemKind.Sigil)
