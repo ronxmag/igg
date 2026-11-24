@@ -18,7 +18,7 @@ internal static partial class PostgresItemTemplateBaselinePublisher
     // consume-item value 0. Only that one exact legacy-field difference is
     // eligible for an in-place compatibility upgrade.
     private static readonly int[] LegacyPetItemSlotUpgradeIds =
-        [10106, 10108, 11003, 11004];
+        [10023, 10043, 10090, 10106, 10108, 11003, 11004];
 
     private static async Task<IReadOnlyList<ItemTemplateDefinition>>
         ReconcileReviewedPetItemsAsync(
@@ -190,7 +190,8 @@ internal static partial class PostgresItemTemplateBaselinePublisher
         await using var command = new NpgsqlCommand(
             """
             UPDATE public.item_templates AS mutable
-            SET equipment_slot = published.equipment_slot
+            SET equipment_slot = published.equipment_slot,
+                stats = published.stats
             FROM public.item_template_content_definitions AS published
             WHERE published.revision = @revision
               AND mutable.id = published.id
@@ -207,11 +208,20 @@ internal static partial class PostgresItemTemplateBaselinePublisher
               AND mutable.skill_flag IS NOT DISTINCT FROM published.skill_flag
               AND mutable.texture = published.texture
               AND mutable.icon = published.icon
-              AND mutable.stats = published.stats;
+              AND (
+                    mutable.stats = published.stats OR
+                    (
+                        mutable.id = 10090 AND
+                        mutable.stats = @legacyPetSpringWaterStats::jsonb
+                    )
+              );
             """,
             connection,
             transaction);
         command.Parameters.AddWithValue("revision", publishedRevision);
+        command.Parameters.AddWithValue(
+            "legacyPetSpringWaterStats",
+            """{"ID":"10090","Use":"1","Icon":"576,936","Type":"consume item","Money":"0","Random":"10","Values":"100","Overlap":"99","Texture":"./Localization/en_us/UI/Texture/Icon2.gwo","ItemType":"8","Distribution":"50,200"}""");
         command.Parameters.Add(new NpgsqlParameter(
             "itemIds",
             NpgsqlDbType.Array | NpgsqlDbType.Integer)
@@ -220,7 +230,6 @@ internal static partial class PostgresItemTemplateBaselinePublisher
         });
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
-
     private static async Task<IReadOnlyList<ItemTemplateDefinition>>
         ReadPetItemRowsAsync(
             NpgsqlConnection connection,
