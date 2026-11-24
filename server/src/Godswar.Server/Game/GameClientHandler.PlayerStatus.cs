@@ -36,6 +36,9 @@ internal sealed partial class GameClientHandler
         var status = ApplyElementalMovementStatus(
             aggregate,
             observedAt);
-        return PacketBuilder.PlayerStatusUpdate(_character, status);
+        return PacketBuilder.PlayerStatusUpdate(
+            _character,
+            status,
+            pkMode: _registry.LocalPlayerPkMode(_character));
     }
 }
