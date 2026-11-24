@@ -40,6 +40,7 @@ internal sealed partial class GameSessionRegistry
         if (decision.AttackerKilled) await CreditAsync(target, attacker);
         foreach (var commit in decision.ElementalDamageCommits.Where(commit => commit.Killed))
             await CreditAsync(commit.Source, commit.Target);
+        await AnnouncePlayerKillStreaksAsync(decision, cancellationToken);
         await AnnounceDuelArenaDefeatsAsync(decision, cancellationToken); // ARENA
 
         var attackerWorldId = attacker.ObjectId;
