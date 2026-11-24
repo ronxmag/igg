@@ -33,7 +33,69 @@ internal sealed partial class GameSessionRegistry
 {
     private readonly ConcurrentDictionary<int, (int Wins, int Losses)>
         _duelArenaRecords = new();
+    private readonly ConcurrentDictionary<int, int> _playerKillStreaks = new();
 
+    internal static bool IsOpposingFactionPair(
+        GameCharacter attacker,
+        GameCharacter target) =>
+        attacker.Camp is GameDefaults.SpartaCamp or GameDefaults.AthensCamp &&
+        target.Camp is GameDefaults.SpartaCamp or GameDefaults.AthensCamp &&
+        attacker.Camp != target.Camp;
+
+    internal static bool IsDuelArenaCombatPair(
+        GameCharacter attacker,
+        GameCharacter target) =>
+        ArenaFeatureGates.DuelArenaPvp &&
+        DuelArenaCombatArea.Contains(
+            attacker.CurrentMap,
+            attacker.PositionX,
+            attacker.PositionZ) &&
+        DuelArenaCombatArea.Contains(
+            target.CurrentMap,
+            target.PositionX,
+            target.PositionZ);
+
+    internal byte? LocalPlayerPkMode(GameCharacter? character) =>
+        character is not null && IsHostilePvpModeRequired(character)
+            ? (byte)1
+            : null;
+
+    private bool IsHostilePvpModeRequired(GameCharacter character)
+    {
+        if (IsDuelArenaCombatPair(character, character))
+        {
+            return true;
+        }
+
+        return character.Camp is GameDefaults.SpartaCamp or GameDefaults.AthensCamp &&
+            _gameplayCatalogs.PvpWorldAuthority.IsUnsafePvpMap(character.CurrentMap) &&
+            !Godswar.Server.Application.North.NorthNpcSafeZone.Contains(
+                character.CurrentMap,
+                character.PositionX,
+                character.PositionZ);
+    }
+
+    private bool IsPeaceProtectionBlockingPlayerPvp(
+        GameCharacter attacker,
+        GameCharacter target,
+        DateTimeOffset now)
+    {
+        if (attacker.PeaceUntil <= now && target.PeaceUntil <= now)
+        {
+            return false;
+        }
+
+        if (IsDuelArenaCombatPair(attacker, target))
+        {
+            return false;
+        }
+
+        // Peace items do not turn a legitimate opposing-faction PvP-map
+        // matchup into a protected target. Map safety and faction are decided
+        // by the normal authority; same-faction and safe-zone pairs stay denied.
+        return !_gameplayCatalogs.PvpWorldAuthority
+            .EvaluateOpposingFaction(attacker, target, now).Allowed;
+    }
     internal PvpEligibilityResult EvaluatePlayerPvpAdmission(
         GameCharacter attacker,
         GameCharacter target,
@@ -41,6 +103,11 @@ internal sealed partial class GameSessionRegistry
     {
         ArgumentNullException.ThrowIfNull(attacker);
         ArgumentNullException.ThrowIfNull(target);
+        if (IsPeaceProtectionBlockingPlayerPvp(attacker, target, now))
+        {
+            return PvpEligibilityResult.Denied(PvpEligibilityFailure.SafeZone);
+        }
+
         if (!ArenaFeatureGates.DuelArenaPvp ||
             !DuelArenaCombatArea.Contains(
                 attacker.CurrentMap,
@@ -115,6 +182,69 @@ internal sealed partial class GameSessionRegistry
     /// quest player kills are untouched (quest player kills already ignore
     /// same-faction victims and only count on map 68).
     /// </summary>
+    private async Task AnnouncePlayerKillStreaksAsync(
+        PvpBasicAttackDecision decision,
+        CancellationToken cancellationToken)
+    {
+        if (!decision.Accepted ||
+            decision.Eligibility.EntitlementKind is not (
+                PvpEntitlementKind.MutualDuel or PvpEntitlementKind.OpposingFaction) ||
+            decision.Attacker is not { } attacker ||
+            decision.Target is not { } target) return;
+
+        var deaths = new List<(GameSessionContext Winner, GameSessionContext Loser)>();
+        if (decision.TargetKilled) deaths.Add((attacker, target));
+        if (decision.AttackerKilled) deaths.Add((target, attacker));
+        foreach (var commit in decision.ElementalDamageCommits.Where(static item => item.Killed))
+            deaths.Add((commit.Source, commit.Target));
+
+        var seenVictims = new HashSet<int>();
+        foreach (var (winner, loser) in deaths)
+        {
+            if (!seenVictims.Add(loser.CharacterId)) continue;
+            var streak = _playerKillStreaks.AddOrUpdate(
+                winner.CharacterId, 1, static (_, current) => checked(current + 1));
+            var ended = _playerKillStreaks.TryRemove(loser.CharacterId, out var prior) ? prior : 0;
+            if (TryGetDotaKillStreakTier(streak, out _))
+                await BroadcastToAllSessionsAsync(
+                    PacketBuilder.DotaKillStreakAnnouncement(
+                        SafeDotaName(winner.CharacterName), $"S#{DotaStreakMessageId(streak)}#{streak}"),
+                    cancellationToken,
+                    "PvpKillStreakAnnouncement");
+            if (TryGetDotaKillStreakTier(ended, out _))
+                await BroadcastToAllSessionsAsync(
+                    PacketBuilder.DotaKillStreakAnnouncement(
+                        SafeDotaName(winner.CharacterName),
+                        $"E#{SafeDotaName(loser.CharacterName)}#{DotaStreakMessageId(ended)}#{ended}"),
+                    cancellationToken,
+                    "PvpKillStreakEndedAnnouncement");
+        }
+    }
+
+    private static string SafeDotaName(string name) =>
+        new(name.Take(32).Select(static c => c is >= ' ' and <= '~' and not '#' ? c : '?').ToArray());
+
+    internal static string DotaStreakMessageId(int streak) => streak switch
+    {
+        0 => "1000", 2 => "1001", 3 => "1002", 4 => "1003",
+        6 => "1004", 7 => "1005", 8 => "1006", 9 => "1007",
+		10 => "1008", 11 => "1009", 12 => "1010", 13 => "1011",
+		>= 14 => "1012", _ => string.Empty
+    };
+
+    internal static bool TryGetDotaKillStreakTier(int streak, out string tier)
+    {
+        tier = streak switch
+        {
+            2 => "Double Kill", 3 => "Triple Kill", 4 => "Ultra Kill",
+            6 => "Rampage", 7 => "Killing Spree", 8 => "Dominating",
+            9 => "Mega Kill", 10 => "Unstoppable", 11 => "Wicked Sick",
+			12 => "Monster Kill", 13 => "Godlike", >= 14 => "Beyond Godlike", 
+			_ => string.Empty
+        };
+        return tier.Length > 0;
+    }
+
     private async Task AnnounceDuelArenaDefeatsAsync(
         PvpBasicAttackDecision decision,
         CancellationToken cancellationToken)
