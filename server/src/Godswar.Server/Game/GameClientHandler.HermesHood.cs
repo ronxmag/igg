@@ -47,7 +47,7 @@ internal sealed partial class GameClientHandler
         string? label = null,
         bool framed = true)
     {
-        if (_character is null || !HermesHoods.IsActive(_character.Id))
+        if (_character is null || !HermesHoods.RequiresRecipientCampProjection(_character))
         {
             return _registry.BroadcastToMapAsync(mapId, build(null), cancellationToken, _session, label, framed);
         }
@@ -67,7 +67,7 @@ internal sealed partial class GameClientHandler
     /// </summary>
     private Func<GameSessionContext, byte[]>? HermesHoodSpawnFrames(byte[] spawnPacket)
     {
-        if (_character is not { } character || !HermesHoods.IsActive(character.Id))
+        if (_character is not { } character || !HermesHoods.RequiresRecipientCampProjection(character))
         {
             return null;
         }
