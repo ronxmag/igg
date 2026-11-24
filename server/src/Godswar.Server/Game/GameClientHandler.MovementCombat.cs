@@ -39,6 +39,10 @@ internal sealed partial class GameClientHandler
             return false;
         }
 
+        var wasInDuelArenaCombat = DuelArenaCombatArea.Contains(
+            _character.CurrentMap,
+            _character.PositionX,
+            _character.PositionZ);
         var movementAcceptedAt = DateTimeOffset.UtcNow;
         if (!IsElementalMovementAllowed(movementAcceptedAt))
         {
@@ -76,6 +80,16 @@ internal sealed partial class GameClientHandler
             return false;
         }
 
+        var isInDuelArenaCombat = DuelArenaCombatArea.Contains(
+            _character.CurrentMap,
+            _character.PositionX,
+            _character.PositionZ);
+        if (ArenaFeatureGates.DuelArenaPvp &&
+            wasInDuelArenaCombat != isInDuelArenaCombat)
+        {
+            await RefreshDuelArenaProtectionProjectionAsync(cancellationToken);
+        }
+
         await RefreshNearbyWorldObjectsAsync("walk", cancellationToken);
         await RecordQuestExplorationAsync(cancellationToken);
         await UpdateNorthSafeZoneLineAsync(cancellationToken); // FINALISE2 F-08
@@ -83,6 +97,49 @@ internal sealed partial class GameClientHandler
         await PersistCharacterPositionAsync(force: false, cancellationToken);
 
         return true;
+    }
+
+    private async Task RefreshDuelArenaProtectionProjectionAsync(
+        CancellationToken cancellationToken)
+    {
+        if (_character is null)
+        {
+            return;
+        }
+
+        var statusSnapshot = await _registry.GetStatusSnapshotAsync(
+            _session,
+            DateTimeOffset.UtcNow,
+            cancellationToken);
+        var objectId = CurrentPlayerObjectId;
+        var spawnPacket = PacketBuilder.PlayerWorldSpawn(
+            _character,
+            objectId,
+            statusSnapshot.Effects,
+            pkMode: _registry.TrainingDummySpawnPkMode(_character));
+        await _registry.BroadcastToMapAsync(
+            _character.CurrentMap,
+            PacketBuilder.RemoveWorldObjects(objectId),
+            cancellationToken,
+            _session,
+            "DuelArenaProtectionProjectionRemove");
+        await _registry.BroadcastToMapAsync(
+            _character.CurrentMap,
+            spawnPacket,
+            cancellationToken,
+            _session,
+            "DuelArenaProtectionProjectionSpawn",
+            perRecipient: HermesHoodSpawnFrames(spawnPacket));
+        await BroadcastCampAwareAsync(
+            _character.CurrentMap,
+            viewerCamp => PacketBuilder.RemotePlayerStatusUpdate(
+                _character,
+                objectId,
+                statusSnapshot.Aggregate,
+                _registry.TrainingDummySpawnPkMode(_character),
+                viewerCamp),
+            cancellationToken,
+            "DuelArenaProtectionProjectionStatus");
     }
 
     private async Task HandleReviveAsync(GamePacket packet, CancellationToken cancellationToken)
