@@ -41,6 +41,9 @@ internal sealed class PvpWorldAuthorityCatalog
     public bool IsSafeZone(byte mapId) =>
         !_mapModes.TryGetValue(mapId, out var mode) || mode != 0;
 
+    public bool IsUnsafePvpMap(byte mapId) =>
+        _mapModes.TryGetValue(mapId, out var mode) && mode == 0;
+
     public PvpEligibilityResult EvaluateOpposingFaction(
         GameCharacter attacker,
         GameCharacter target,
