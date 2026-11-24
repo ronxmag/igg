@@ -7,12 +7,12 @@ namespace Godswar.Server.Game;
 
 internal sealed partial class GameSessionRegistry
 {
-    private PvpEligibilityResult EvaluatePvpBasicAttack(
+    internal PvpEligibilityResult EvaluatePvpBasicAttack(
         GameCharacter attacker,
         GameCharacter target,
         DateTimeOffset now)
     {
-        if (attacker.PeaceUntil > now || target.PeaceUntil > now)
+        if (IsPeaceProtectionBlockingPlayerPvp(attacker, target, now))
         {
             return PvpEligibilityResult.Denied(PvpEligibilityFailure.SafeZone);
         }
@@ -89,8 +89,10 @@ internal sealed partial class GameSessionRegistry
         _trainingDummies.TryGetCoreIdentity(character, out _);
 
     internal byte? TrainingDummySpawnPkMode(GameCharacter? character) =>
-        IsTrainingDummy(character) ? (byte)1 : null;
-
+        IsTrainingDummy(character) ||
+        character is not null && IsHostilePvpModeRequired(character)
+            ? (byte)1
+            : null;
     internal bool TryRestoreTrainingDummyEntryState(
         GameCharacter? character)
     {
