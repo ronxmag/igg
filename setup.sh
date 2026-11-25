@@ -122,7 +122,7 @@ load_env() {
 # the session to the address the login came from), then 127.0.0.1.
 selftest() {
   local h
-  for h in "$GODSWAR_HOST" 127.0.0.1; do
+  for h in "$GODSWAR_HOST" 0.0.0.0; do
     python3 -I "$REPO/signup/test/game_login.py" "$GODSWAR_ADMIN_USER" "$1" "$h:$GODSWAR_LOGIN_PORT" >/dev/null 2>&1 && return 0
   done
   return 1
@@ -180,7 +180,7 @@ detect_ip() {
 say "Settings"
 if [ -z "${GODSWAR_HOST:-}" ]; then
   if [ "$MODE" = vps ]; then guess=$(detect_ip || true); note "detected public IP: ${guess:-none}"
-  else guess=127.0.0.1; fi
+  else guess=0.0.0.0; fi
   ask GODSWAR_HOST "Address players connect to (IP; a LAN IP lets your network join)" "$guess"
 fi
 valid_host "${GODSWAR_HOST:-}" || die "invalid address '${GODSWAR_HOST:-}'"
@@ -217,7 +217,7 @@ if [ "$PLATFORM" = docker ]; then :; else
       valid_host "$SITE" || die "invalid domain $SITE"
       ORIGIN="https://$SITE"
     else
-      ORIGIN="http://127.0.0.1:8090"
+      ORIGIN="http://0.0.0.0:8090"
     fi
     # mail (optional)
     if [ -z "${GODSWAR_MAIL_FROM:-}" ] && [ "$INTERACTIVE" = 1 ]; then
@@ -508,7 +508,7 @@ fi
 
 # ---- 5. server configuration ------------------------------------------------------------------
 say "Server configuration"
-BIND=0.0.0.0; [ "$GODSWAR_HOST" = 127.0.0.1 ] && BIND=127.0.0.1
+BIND=0.0.0.0; [ "$GODSWAR_HOST" = 0.0.0.0 ] && BIND=0.0.0.0
 # appsettings.json from the repository's, without any secret (the connection string comes from a credential file)
 if [ "$DRY" = 0 ]; then
   python3 -I - "$REPO/server/appsettings.json" "$GODSWAR_HOST" "$GODSWAR_LOGIN_PORT" "$GODSWAR_GAME_PORT" "$GODSWAR_MANAGEMENT_PORT" "$BIND" <<'PY' \
@@ -536,6 +536,7 @@ GODSWAR_GAME_PORT=$GODSWAR_GAME_PORT
 GODSWAR_GAME_PUBLIC_HOST=$GODSWAR_HOST
 GODSWAR_GAME_PUBLIC_PORT=$GODSWAR_GAME_PORT
 GODSWAR_EDITION=$GODSWAR_EDITION
+GODSWAR_DUEL_ARENA_PVP=true
 GODSWAR_MONSTER_RUNTIME=Ecs
 GODSWAR_PLAYER_RUNTIME=Ecs
 GODSWAR_AUTH_ALLOW_LEGACY_RAW_AUTHENTICATION=true
@@ -723,7 +724,7 @@ if [ "$GODSWAR_SIGNUP" = yes ] && [ "$MODE" = vps ]; then
     install -o root -g root -m 644 "$new" /etc/caddy/Caddyfile; rm -f "$new"
     install -d -m 755 /var/www/gwdownloads /var/www/gwupdates
     install -d -o caddy -g caddy -m 750 /var/log/caddy
-  else note "[dry-run] write /etc/caddy/Caddyfile for $SITE -> 127.0.0.1:8090"; fi
+  else note "[dry-run] write /etc/caddy/Caddyfile for $SITE -> 0.0.0.0:8090"; fi
   run systemctl enable caddy
   run systemctl reload-or-restart caddy
 fi
