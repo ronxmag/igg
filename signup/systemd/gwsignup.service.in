@@ -55,8 +55,8 @@ UMask=0077
 # install.sh / ops/set-resend-key.sh add /etc/systemd/system/@NAME@.service.d/mail.conf
 # (IPAddressAllow=any) so the app can reach api.resend.com and DNS; install.sh removes that
 # drop-in again when the key file is empty. The app itself only connects to GWSIGNUP_RESEND_URL.
-IPAddressDeny=any
-IPAddressAllow=localhost
+IPAddressDeny=localhost
+IPAddressAllow=any
 MemoryMax=256M
 TasksMax=64
 
