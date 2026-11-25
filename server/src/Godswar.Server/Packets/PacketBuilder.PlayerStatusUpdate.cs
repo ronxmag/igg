@@ -1,4 +1,6 @@
 using System.Buffers.Binary;
+using Godswar.Server.Domain.World.Content;
+using Godswar.Server.Game;
 using Godswar.Server.State;
 
 namespace Godswar.Server.Packets;
@@ -94,18 +96,21 @@ internal static partial class PacketBuilder
 
     public static byte[] PlayerStatusUpdate(
         GameCharacter character,
-        ClientStatusAggregate aggregate)
+        ClientStatusAggregate aggregate,
+        byte? pkMode = null)
     {
         return PlayerStatusUpdate(
             character,
             LocalPlayerObjectId,
-            aggregate);
+            aggregate,
+            pkMode);
     }
 
     public static byte[] PlayerStatusUpdate(
         GameCharacter character,
         uint objectId,
-        ClientStatusAggregate aggregate)
+        ClientStatusAggregate aggregate,
+        byte? pkMode = null)
     {
         if (character.Camp is not (
                 GameDefaults.SpartaCamp or
@@ -167,6 +172,27 @@ internal static partial class PacketBuilder
         // valid 0/1 keeps player hostility and NPC faction checks coherent.
         packet.AsSpan(PlayerStatusInteractionIdentityOffset, sizeof(uint)).Clear();
         packet[PlayerStatusCampOffset] = character.Camp;
+        if (pkMode is not (null or 1))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(pkMode),
+                pkMode,
+                "Only hostile PK mode 1 may override the captured default.");
+        }
+        if (pkMode.HasValue)
+        {
+            packet[PlayerStatusPkModeOffset] = pkMode.Value;
+        }
+        if (objectId == LocalPlayerObjectId &&
+            ArenaFeatureGates.DuelArenaPvp &&
+            DuelArenaCombatArea.Contains(
+                character.CurrentMap,
+                character.PositionX,
+                character.PositionZ))
+        {
+            // The captured local mode 5 is protected; arena combat needs hostile mode.
+            packet[PlayerStatusPkModeOffset] = 1;
+        }
         var stats = CharacterStats.FromCharacter(character);
         BinaryPrimitives.WriteInt32LittleEndian(
             packet.AsSpan(PlayerStatusPhysicalDefenseOffset, sizeof(int)),
