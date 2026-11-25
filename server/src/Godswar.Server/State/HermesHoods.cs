@@ -1,5 +1,7 @@
 using System.Collections.Concurrent;
 using Godswar.Server.Application.Finalise2;
+using Godswar.Server.Domain.World.Content;
+using Godswar.Server.Game;
 
 namespace Godswar.Server.State;
 
@@ -22,7 +24,7 @@ internal static class HermesHoods
 
     public static void Set(int characterId, DateTimeOffset until) => Hoods[characterId] = until;
 
-    /// <summary>F-156: ends a hood early (its wearer attacked a player). True when one was active.</summary>
+    /// <summary>F-156: ends a hood early (wearer attacked another player). True when one was active.</summary>
     public static bool Clear(int characterId) =>
         Hoods.TryRemove(characterId, out var until) && DateTimeOffset.UtcNow < until;
 
@@ -42,9 +44,39 @@ internal static class HermesHoods
         Finalise2Rates.On(Finalise2RateKeys.HermesHood) &&
         TryGetExpiry(characterId, out _);
 
-    /// <summary>The camp byte <paramref name="character"/> is shown with to a viewer of <paramref name="viewerCamp"/>.</summary>
-    public static byte ShownCamp(GameCharacter character, byte? viewerCamp) =>
-        viewerCamp is GameDefaults.SpartaCamp or GameDefaults.AthensCamp && IsActive(character.Id)
+    /// <summary>The camp byte shown to a viewer, including arena hostility and Hermes Hood projection.</summary>
+    public static byte ShownCamp(GameCharacter character, byte? viewerCamp)
+    {
+        if (viewerCamp is not (GameDefaults.SpartaCamp or GameDefaults.AthensCamp))
+        {
+            return character.Camp;
+        }
+
+        // Matching factions must look hostile in the Duel Arena so the client
+        // allows target selection. This changes presentation only; server PvP
+        // admission still enforces party protection and combat-area boundaries.
+        if (ArenaFeatureGates.DuelArenaPvp &&
+            DuelArenaCombatArea.Contains(
+                character.CurrentMap,
+                character.PositionX,
+                character.PositionZ) &&
+            character.Camp == viewerCamp.Value)
+        {
+            return viewerCamp.Value == GameDefaults.SpartaCamp
+                ? GameDefaults.AthensCamp
+                : GameDefaults.SpartaCamp;
+        }
+
+        return IsActive(character.Id)
             ? viewerCamp.Value
             : character.Camp;
+    }
+
+    public static bool RequiresRecipientCampProjection(GameCharacter character) =>
+        IsActive(character.Id) ||
+        (ArenaFeatureGates.DuelArenaPvp &&
+         DuelArenaCombatArea.Contains(
+             character.CurrentMap,
+             character.PositionX,
+             character.PositionZ));
 }
