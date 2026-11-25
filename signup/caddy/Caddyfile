@@ -57,7 +57,7 @@
 	}
 
 	handle {
-		reverse_proxy 127.0.0.1:8090 {
+		reverse_proxy 0.0.0.0:8090 {
 			# The app trusts this header only from 127.0.0.1, and Caddy always overwrites it.
 			header_up X-Real-IP {remote_host}
 		}
