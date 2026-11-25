@@ -1,4 +1,6 @@
 using Godswar.Server.Application.Finalise2;
+using Godswar.Server.Domain.World.Content;
+using Godswar.Server.Game;
 using Godswar.Server.State;
 
 namespace Godswar.Server.Packets;
@@ -41,6 +43,35 @@ internal static class ClientStatusWirePolicy
         ExperienceStatusIds.OctagramPatron or
         ExperienceStatusIds.PremiumBattlePass;
 
+    public static IReadOnlyList<ClientStatusEffect> ApplyForCharacter(
+        GameCharacter character,
+        IReadOnlyList<ClientStatusEffect> effects)
+    {
+        ArgumentNullException.ThrowIfNull(character);
+        var projected = Apply(effects);
+        var inDuelArenaCombat = ArenaFeatureGates.DuelArenaPvp &&
+            DuelArenaCombatArea.Contains(
+                character.CurrentMap,
+                character.PositionX,
+                character.PositionZ);
+        var peaceIsActive = character.PeaceUntil > DateTimeOffset.UtcNow;
+        var unsafePvpMap = peaceIsActive &&
+            MapTemplateSeeds.Maps.Any(map =>
+                map.MapId == character.CurrentMap && map.MapMode == 0) &&
+            !Godswar.Server.Application.North.NorthNpcSafeZone.Contains(
+                character.CurrentMap,
+                character.PositionX,
+                character.PositionZ);
+        if (!inDuelArenaCombat && !unsafePvpMap)
+        {
+            return projected;
+        }
+
+        // Harmony peace statuses make the client reject targets on the Arena
+        // and active PvP maps. Server admission remains authoritative.
+        return projected.Where(static effect => effect.StatusId is not (650 or 651 or 652))
+            .ToArray();
+    }
     public static IReadOnlyList<ClientStatusEffect> Apply(
         IReadOnlyList<ClientStatusEffect> effects) =>
         Apply(effects, Finalise2Rates.On(Finalise2RateKeys.AccountBonusIcons));
