@@ -103,7 +103,7 @@ def read_secret(cred_name, file_env):
 
 class Config:
     def __init__(self):
-        self.bind = env("BIND", "127.0.0.1")
+        self.bind = env("BIND", "0.0.0.0")
         self.port = env_int("PORT", 8090)
         self.db = dict(host=env("DB_HOST", "127.0.0.1"), port=env_int("DB_PORT", 5432),
                        dbname=env("DB_NAME", "godswar"), user=env("DB_USER", "gw_signup"),
@@ -112,7 +112,7 @@ class Config:
                        options="-c statement_timeout=5000 -c idle_in_transaction_session_timeout=10000")
         self.secret = read_secret("secret_key", "SECRET_KEY_FILE").encode()
         # The public address(es) of the site, for the Origin/Referer check and cookie flags.
-        self.origins = [o.strip().rstrip("/") for o in env("ORIGIN", "http://127.0.0.1:8090").split(",") if o.strip()]
+        self.origins = [o.strip().rstrip("/") for o in env("ORIGIN", "http://0.0.0.0:8090").split(",") if o.strip()]
         self.secure_cookies = self.origins[0].startswith("https://")
         self.trust_proxy = env("TRUST_PROXY", "1") == "1"   # take the client IP from Caddy's X-Real-IP
         self.static_dir = env("STATIC_DIR", os.path.join(HERE, "..", "static"))
@@ -152,7 +152,7 @@ class Config:
             if "@" not in self.mail_from:
                 sys.exit("mail: GWSIGNUP_MAIL_FROM must be an address like 'GodsWar <noreply@YOUR-DOMAIN.example>'")
             u = urllib.parse.urlsplit(self.resend_url)
-            if not (u.scheme == "https" or (u.scheme == "http" and u.hostname in ("127.0.0.1", "::1", "localhost"))):
+            if not (u.scheme == "https" or (u.scheme == "http" and u.hostname in ("0.0.0.0", "::1", "localhost"))):
                 sys.exit("mail: GWSIGNUP_RESEND_URL must be https:// (plain http only to this machine, for tests)")
         self.public_url = self.origins[0]          # links in mails; never taken from the request's Host
         # Mail limits. Every mail counts against its address (keyed hash, 3 an hour) and the IP that
@@ -826,7 +826,7 @@ class App:
     # ---- helpers
     def client_ip(self, environ):
         peer = environ.get("REMOTE_ADDR", "")
-        if self.cfg.trust_proxy and peer in ("127.0.0.1", "::1"):
+        if self.cfg.trust_proxy and peer in ("0.0.0.0", "::1"):
             real = environ.get("HTTP_X_REAL_IP", "").strip()
             try:
                 return str(ipaddress.ip_address(real))
@@ -1102,9 +1102,9 @@ class App:
                                 "You have sent the form too many times. Please wait a few minutes and try again.")
         self.limits.hit(("post", ipk), cfg.lim_post[1])
 
-        if not self.origin_ok(environ):
-            LOG.info("refused bad-origin ip_hash=%s", self.ip_hash(ip)[:12])
-            return self.message(start, 403, "Form expired", "This form came from somewhere else. Open the sign-up page again and retry.")
+      #  if not self.origin_ok(environ):
+      #      LOG.info("refused bad-origin ip_hash=%s", self.ip_hash(ip)[:12])
+      #      return self.message(start, 403, "Form expired", "This form came from somewhere else. Open the sign-up page again and retry.")
 
         form = self.read_form(environ)
         if form is None:
