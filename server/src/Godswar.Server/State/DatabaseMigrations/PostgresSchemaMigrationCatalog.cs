@@ -389,6 +389,6 @@ internal static partial class PostgresSchemaMigrationCatalog
         CreateSessionHealth(), // W6A per-connection login and session health
         CreateClearStaleLoginStatus(), // W14 one-off clear of stale token-less login flags
         CreateMedusaTitleOrder(), // MEDUSA-TITLES fastest Advanced clear = Executioners (+3%)
-        FixPetAptitudeInnateTalentConstraint()
+        CreateOutpostNpcCampNeutral() // W23 outpost / north giver / Sanctum exit NPCs open to both camps
     ];
 }
