@@ -114,6 +114,7 @@ internal static partial class PacketBuilder
         byte? viewerCamp = null) // ITEMS-HERMES: the receiving player's camp, for the Hermes Hood
     {
         effects ??= [];
+        effects = ClientStatusWirePolicy.ApplyForCharacter(character, effects);
         if (effects.Count > PlayerWorldStatusMaximumCount)
         {
             throw new ArgumentOutOfRangeException(
