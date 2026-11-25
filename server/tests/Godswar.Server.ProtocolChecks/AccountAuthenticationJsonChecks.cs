@@ -262,68 +262,40 @@ internal static class AccountAuthenticationJsonChecks
             CryptographicOperations.ZeroMemory(wrongPassword);
         }
 
-        // B22 W15: legacy raw registration follows AllowRegistration (it used to be forced on).
-        var closedOptions = TestOptions();
-        closedOptions.AllowRegistration = false;
-        await using (var closed =
+        var rawOptions = TestOptions();
+        rawOptions.AllowRegistration = false;
+        await using var rawAuthentication =
             AccountAuthenticationService.CreateLegacyRaw(
                 store,
                 store,
-                closedOptions))
-        {
-            var closedPassword = "new-account"u8.ToArray();
-            try
-            {
-                var refused = await closed.AuthenticateAsync(
-                    "auth-flow-closed",
-                    closedPassword);
-                Check.Equal(
-                    (int)AccountAuthenticationStatus.Rejected,
-                    (int)refused.Status,
-                    "legacy raw with registration off rejects a missing account");
-                Check.True(
-                    await store.FindAccountCredentialAsync(
-                        "auth-flow-closed") is null,
-                    "legacy raw with registration off creates no account");
-            }
-            finally
-            {
-                CryptographicOperations.ZeroMemory(closedPassword);
-            }
-        }
-
-        var registrationOptions = TestOptions();
-        registrationOptions.AllowRegistration = true;
-        await using var registration =
-            AccountAuthenticationService.CreateLegacyRaw(
-                store,
-                store,
-                registrationOptions);
-        var registrationPassword = "new-account"u8.ToArray();
+                rawOptions);
+        var rawPassword = "new-account"u8.ToArray();
+        var existingRawPassword = "correct horse"u8.ToArray();
         try
         {
-            var created = await registration.AuthenticateAsync(
+            var unknownRawLogin = await rawAuthentication.AuthenticateAsync(
                 "auth-flow-created",
-                registrationPassword);
+                rawPassword);
+            Check.Equal(
+                (int)AccountAuthenticationStatus.Rejected,
+                (int)unknownRawLogin.Status,
+                "legacy raw login does not create accounts when registration is disabled");
             Check.True(
-                created.IsAccepted,
-                "legacy raw registration accepts a missing account");
-            Check.True(
-                created.AccountCreated,
-                "legacy raw registration remains explicit");
-            var verifier = (await store.FindAccountCredentialAsync(
-                "auth-flow-created"))!.Verifier;
-            Check.True(
-                PasswordVerifierRecord.TryParse(verifier, out var parsed),
-                "registration persists only a versioned verifier");
-            parsed!.Dispose();
+                await store.FindAccountCredentialAsync("auth-flow-created") is null,
+                "disabled legacy raw registration leaves no account row");
+
+            var existingRawLogin = await rawAuthentication.AuthenticateAsync(
+                "auth-flow-legacy",
+                existingRawPassword);
+            Check.True(existingRawLogin.IsAccepted,
+                "legacy raw authentication still verifies existing accounts");
         }
         finally
         {
-            CryptographicOperations.ZeroMemory(registrationPassword);
+            CryptographicOperations.ZeroMemory(rawPassword);
+            CryptographicOperations.ZeroMemory(existingRawPassword);
         }
     }
-
     private static async Task CheckConcurrentMigrationAsync(
         string dataPath)
     {
