@@ -59,7 +59,7 @@ if [ "$MODE" = live ]; then
   : "${DB:=godswar}" "${PORT:=8090}" "${NAME:=gwsignup}" "${ROLE:=gw_signup}" "${ORIGIN:?pass --origin https://your.domain (the public address of the sign-up site)}"
 else
   : "${DB:=godswar_signup}" "${PORT:=8091}" "${NAME:=gwsignup-test}" "${ROLE:=gw_signup_test}"
-  : "${ORIGIN:=http://127.0.0.1:$PORT,http://localhost:$PORT}"
+  : "${ORIGIN:=http://0.0.0.0:$PORT,http://localhost:$PORT}"
   CADDY=0; FIREWALL=0
   [ "$DB" != godswar ] || die "--test must not use the live database 'godswar'"
   [ "$NAME" != gwsignup ] || die "--test must not use the live service name 'gwsignup'"
@@ -166,7 +166,7 @@ SERVER_NAME=$(sed -n 's/^GWSIGNUP_SERVER_NAME=//p' "$ETC/gwsignup.env" 2>/dev/nu
 MAIL_LINES=$(grep -E '^GWSIGNUP_(MAIL|MAIL_[A-Z_]+|RESEND_[A-Z_]+|LIMIT_MAIL[A-Z_]*)=' "$ETC/gwsignup.env" 2>/dev/null || true)
 cat > "$ETC/gwsignup.env" <<EOF
 # Settings for $NAME (written by install.sh; secrets are NOT here, see LoadCredential in the unit).
-GWSIGNUP_BIND=127.0.0.1
+GWSIGNUP_BIND=0.0.0.0
 GWSIGNUP_PORT=$PORT
 GWSIGNUP_DB_HOST=127.0.0.1
 GWSIGNUP_DB_PORT=${PGPORT:-5432}
@@ -220,7 +220,7 @@ systemctl restart "$NAME.service"
 
 i=0; health=""
 while [ $i -lt 20 ]; do
-  health=$(curl -s -m 2 "http://127.0.0.1:$PORT/healthz" || true)
+  health=$(curl -s -m 2 "http://0.0.0.0:$PORT/healthz" || true)
   [ "$health" = ok ] && break
   sleep 1; i=$((i+1))
 done
@@ -239,7 +239,7 @@ fi
 if [ "$CADDY" = 1 ]; then
   say "Caddy"
   NEW=$(mktemp)
-  sed -e "s#/opt/gwsignup/static#$PREFIX/static#" -e "s#127.0.0.1:8090#127.0.0.1:$PORT#" "$SRC/caddy/Caddyfile" > "$NEW"
+  sed -e "s#/opt/gwsignup/static#$PREFIX/static#" -e "s#0.0.0.0:8090#0.0.0.0:$PORT#" "$SRC/caddy/Caddyfile" > "$NEW"
   caddy validate --config "$NEW" --adapter caddyfile >/dev/null 2>&1 || { caddy validate --config "$NEW" --adapter caddyfile; rm -f "$NEW"; die "Caddyfile does not validate"; }
   if [ -f /etc/caddy/Caddyfile ] && ! cmp -s "$NEW" /etc/caddy/Caddyfile; then
     cp -p /etc/caddy/Caddyfile "/etc/caddy/Caddyfile.before-gwsignup-$(date -u +%Y%m%dT%H%M%SZ)"
@@ -248,7 +248,7 @@ if [ "$CADDY" = 1 ]; then
   install -d -o caddy -g caddy -m 750 /var/log/caddy
   systemctl enable caddy >/dev/null 2>&1
   if systemctl is-active --quiet caddy; then systemctl reload caddy; else systemctl start caddy; fi
-  echo "Caddy serves $ORIGIN -> 127.0.0.1:$PORT (certificates are fetched on first start)"
+  echo "Caddy serves $ORIGIN -> 0.0.0.0:$PORT (certificates are fetched on first start)"
 fi
 
 # ------------------------------------------------------------------ firewall (live)
