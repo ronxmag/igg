@@ -113,7 +113,7 @@ class Config:
         self.secret = read_secret("secret_key", "SECRET_KEY_FILE").encode()
         # The public address(es) of the site, for the Origin/Referer check and cookie flags.
         self.origins = [o.strip().rstrip("/") for o in env("ORIGIN", "http://0.0.0.0:8090").split(",") if o.strip()]
-        self.secure_cookies = self.origins[0].startswith("https://")
+        self.secure_cookies = self.origins[0].startswith("http://") #timailhan utrohon para mogana
         self.trust_proxy = env("TRUST_PROXY", "1") == "1"   # take the client IP from Caddy's X-Real-IP
         self.static_dir = env("STATIC_DIR", os.path.join(HERE, "..", "static"))
         self.template_dir = env("TEMPLATE_DIR", os.path.join(HERE, "..", "templates"))
