@@ -12,6 +12,7 @@ internal static partial class PacketBuilder
     internal const int CenteredAnnouncementMaximumTextLength =
         PythonNoteTextPartLength * 2;
     private const int PythonNoteDirectTextType = 50;
+    internal const int DotaKillStreakNoteType = 71;
     private const byte PythonNoteCenterChannel = 0;
     private const byte PythonNotePersonalChannel = 1;
     private const string CenteredRedTextPrefix = "|cFFFF0000";
@@ -169,6 +170,23 @@ internal static partial class PacketBuilder
     /// One composed note whose two fixed fields are raw encoded bytes rather than
     /// ASCII, so a text the client already owns can be sent without changing it.
     /// </summary>
+    /// <summary>Builds the center-channel PythonNote consumed by SrvMsg.lua's Dota streak handler.</summary>
+    public static byte[] DotaKillStreakAnnouncement(string playerName, string message)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(playerName);
+        ArgumentException.ThrowIfNullOrWhiteSpace(message);
+        if (playerName.Length >= PythonNoteFieldLength ||
+            playerName.Any(static character => character is < ' ' or > '~' or '#') ||
+            message.Length >= PythonNoteFieldLength ||
+            message.Any(static character => character is < ' ' or > '~'))
+        {
+            throw new ArgumentOutOfRangeException(nameof(message),
+                "Lua streak notes require printable ASCII in each native 63-byte field.");
+        }
+
+        return ComposeNote(DotaKillStreakNoteType, PythonNoteCenterChannel, playerName, message);
+    }
+
     private static byte[] ComposeNoteBytes(
         int noteType,
         byte channel,
