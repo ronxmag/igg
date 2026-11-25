@@ -23,6 +23,8 @@ internal static class ArenaFeatureChecks
         {
             CheckCombatArea();
             CheckAdmission();
+            CheckProtectionBypass();
+            CheckArenaCampProjection();
             CheckParnassus();
             CheckAfkRevivalCommand();
         }
@@ -119,8 +121,300 @@ internal static class ArenaFeatureChecks
         Check.True(PacketBuilder.ServerNote(GameSessionRegistry.DuelArenaDefeatLine(
             new string('x', 32), (999, 999), new string('y', 32), (999, 999))).Length == 260,
             "longest names still fit a server note");
+        var dotaTiers = new[]
+        {
+            (2, "Double Kill"), (3, "Triple Kill"), (4, "Ultra Kill"),
+            (6, "Rampage"), (7, "Killing Spree"), (8, "Dominating"),
+            (9, "Mega Kill"), (10, "Unstoppable"), (11, "Wicked Sick"),
+			(12, "Monster Kill"), (13, "Godlike"), (14, "Beyond Godlike")
+        };
+        foreach (var (streak, tier) in dotaTiers)
+        {
+            Check.True(GameSessionRegistry.TryGetDotaKillStreakTier(streak, out var actualTier) &&
+                actualTier == tier, $"Dota kill-streak tier at {streak}");
+        }
+        Check.True(!GameSessionRegistry.TryGetDotaKillStreakTier(0, out _) &&
+            !GameSessionRegistry.TryGetDotaKillStreakTier(2, out _),
+            "no Dota announcer tier before three kills");
+        var streakNote = PacketBuilder.DotaKillStreakAnnouncement("Rigtest", "S#1002#5");
+        Check.Equal(137, streakNote.Length, "Lua streak announcement uses native PythonNote frame");
+        Check.Equal((ushort)10038,
+            System.Buffers.Binary.BinaryPrimitives.ReadUInt16LittleEndian(streakNote.AsSpan(2, 2)),
+            "Lua streak announcement uses PythonNote opcode");
+        Check.Equal(PacketBuilder.DotaKillStreakNoteType,
+            System.Buffers.Binary.BinaryPrimitives.ReadInt32LittleEndian(streakNote.AsSpan(4, 4)),
+            "Lua streak announcement dispatches the dedicated message type");
+        Check.Equal((byte)0, streakNote[8], "Lua streak announcement is centered, not personal");
+        Check.Equal("Rigtest", System.Text.Encoding.ASCII.GetString(streakNote, 9, 7).TrimEnd('\0'),
+            "Lua announcer receives the credited killer name");
+        Check.Equal("S#1002#5", System.Text.Encoding.ASCII.GetString(streakNote, 73, 8).TrimEnd('\0'),
+            "Lua announcer receives the mapped Mega Kill message ID and count");
+        Check.Equal("1001", GameSessionRegistry.DotaStreakMessageId(2),
+            "Dota Double Kill uses the requested STREAK000 key");
+        Check.Equal("1011", GameSessionRegistry.DotaStreakMessageId(13),
+            "Beyond Godlike uses the final mapped streak key");
+        Check.Equal("1012", GameSessionRegistry.DotaStreakMessageId(14),
+            "Beyond Godlike uses the final Lua label key");
+        var shutdownNote = PacketBuilder.DotaKillStreakAnnouncement("Winner", "E#Rigtest#1000#3");
+        Check.Equal("E#Rigtest#1000#3",
+            System.Text.Encoding.ASCII.GetString(shutdownNote, 73, 16).TrimEnd('\0'),
+            "shutdown note carries loser name and mapped tier ID");
+        Check.Equal("1002", GameSessionRegistry.DotaStreakMessageId(5),
+            "Mega Kill maps to STREAK002");
     }
 
+    private static void CheckProtectionBypass()
+    {
+        var registry = new GameSessionRegistry(gameplayCatalogs: GameplayContentTestFixtures.Runtime);
+        var now = DateTimeOffset.UtcNow;
+        var protectedArenaPlayer = Player(400, 57, -5, 24, GameDefaults.SpartaCamp);
+        var attacker = Player(401, 57, -5, 28, GameDefaults.SpartaCamp);
+        protectedArenaPlayer.PeaceUntil = now.AddMinutes(5);
+
+        ArenaFeatureGates.Override = true;
+        var arena = registry.EvaluatePvpBasicAttack(attacker, protectedArenaPlayer, now);
+        Check.True(arena.Allowed && arena.EntitlementKind == PvpEntitlementKind.MutualDuel,
+            "active peace protection does not block Duel Arena basic attacks");
+
+        var opposingFactionProtected = Player(402, 57, -5, 32, GameDefaults.AthensCamp);
+        opposingFactionProtected.PeaceUntil = now.AddMinutes(5);
+        var opposingDuel = registry.EvaluatePvpBasicAttack(attacker, opposingFactionProtected, now);
+        Check.True(opposingDuel.Allowed && opposingDuel.EntitlementKind == PvpEntitlementKind.MutualDuel,
+            "active peace protection does not block opposing-faction Duel Arena attacks");
+        Check.True(registry.TrainingDummySpawnPkMode(opposingFactionProtected) == 1,
+            "opposing-faction protected arena player gets hostile PK mode");
+        var opposingSpawn = PacketBuilder.PlayerWorldSpawn(
+            opposingFactionProtected,
+            0x715u,
+            [new ClientStatusEffect(650, 300)],
+            pkMode: registry.TrainingDummySpawnPkMode(opposingFactionProtected),
+            viewerCamp: GameDefaults.SpartaCamp);
+        var opposingStatus = PacketBuilder.RemotePlayerStatusUpdate(
+            opposingFactionProtected,
+            0x715u,
+            Godswar.Server.State.ClientStatusAggregate.Empty,
+            pkMode: registry.TrainingDummySpawnPkMode(opposingFactionProtected),
+            viewerCamp: GameDefaults.SpartaCamp);
+        Check.Equal((byte)1, opposingSpawn[0x50],
+            "opposing-faction protected spawn does not carry protected PK mode");
+        Check.Equal((byte)1, opposingStatus[232],
+            "opposing-faction protected status does not carry protected PK mode");
+        Check.Equal(0, System.Buffers.Binary.BinaryPrimitives.ReadUInt16LittleEndian(opposingSpawn.AsSpan(178, 2)),
+            "opposing-faction protected spawn omits Harmony status");
+
+        protectedArenaPlayer.CurrentMap = 13;
+        protectedArenaPlayer.PositionX = 100;
+        protectedArenaPlayer.PositionZ = -100;
+        attacker.CurrentMap = 13;
+        attacker.PositionX = 102;
+        attacker.PositionZ = -100;
+        var outside = registry.EvaluatePvpBasicAttack(attacker, protectedArenaPlayer, now);
+        Check.True(!outside.Allowed && outside.Failure == PvpEligibilityFailure.SafeZone,
+            "active peace protection still blocks basic attacks outside the Duel Arena");
+
+        var opposingOutsideAttacker = Player(403, 13, 102, -100, GameDefaults.AthensCamp);
+        var opposingOutsideProtected = Player(404, 13, 100, -100, GameDefaults.SpartaCamp);
+        opposingOutsideProtected.PeaceUntil = now.AddMinutes(5);
+        var opposingOutside = registry.EvaluatePlayerPvpAdmission(
+            opposingOutsideAttacker,
+            opposingOutsideProtected,
+            now);
+        Check.True(opposingOutside.Allowed &&
+            opposingOutside.EntitlementKind == PvpEntitlementKind.OpposingFaction,
+            "active peace protection does not block opposing-faction PvP on an unsafe map outside the Duel Arena");
+        Check.True(registry.TrainingDummySpawnPkMode(opposingOutsideProtected) == 1,
+            "peace-protected opposing-faction target is projected hostile on an unsafe PvP map");
+        Check.Equal((byte)1, PacketBuilder.PlayerWorldSpawn(
+                opposingOutsideProtected,
+                0x719u,
+                pkMode: registry.TrainingDummySpawnPkMode(opposingOutsideProtected),
+                viewerCamp: GameDefaults.AthensCamp)[0x50],
+            "opposing-faction PvP-map spawn is attackable despite peace protection");
+        Check.Equal((byte)1, PacketBuilder.RemotePlayerStatusUpdate(
+                opposingOutsideProtected,
+                0x719u,
+                Godswar.Server.State.ClientStatusAggregate.Empty,
+                pkMode: registry.TrainingDummySpawnPkMode(opposingOutsideProtected),
+                viewerCamp: GameDefaults.AthensCamp)[232],
+            "opposing-faction PvP-map status remains attackable");
+        Check.True(registry.LocalPlayerPkMode(opposingOutsideAttacker) == 1,
+            "local opposing-faction attacker is projected hostile on an unsafe PvP map");
+        Check.Equal((byte)1, PacketBuilder.PlayerWorldSpawn(
+                opposingOutsideProtected,
+                0x71Bu,
+                pkMode: registry.TrainingDummySpawnPkMode(opposingOutsideProtected),
+                viewerCamp: GameDefaults.AthensCamp)[0x50],
+            "peace-protected target on map 13 is sent with hostile PK mode");
+        var activePeaceProjection = PacketBuilder.RemotePlayerStatusUpdate(
+            opposingOutsideProtected,
+            0x71Au,
+            Godswar.Server.State.ClientStatusAggregate.Empty,
+            pkMode: registry.TrainingDummySpawnPkMode(opposingOutsideProtected),
+            viewerCamp: GameDefaults.AthensCamp);
+        Check.Equal((byte)1, activePeaceProjection[232],
+            "active peace target remains hostile to opposing-faction viewers on PvP maps");
+        var outsideOpposingStatus = PacketBuilder.PlayerStatusEffects(
+            opposingOutsideProtected,
+            0x716u,
+            [new ClientStatusEffect(650, 300), new ClientStatusEffect(500, 300)],
+            Godswar.Server.State.ClientStatusAggregate.Empty);
+        Check.Equal(1u, System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(
+                outsideOpposingStatus.AsSpan(8, 4)),
+            "unsafe-map opposing-faction status omits the client-blocking peace icon");
+        opposingOutsideProtected.PeaceUntil = DateTimeOffset.UtcNow.AddMinutes(5);
+        var activePeaceOutsideStatus = PacketBuilder.PlayerStatusEffects(
+            opposingOutsideProtected,
+            0x718u,
+            [new ClientStatusEffect(650, 300), new ClientStatusEffect(500, 300)],
+            Godswar.Server.State.ClientStatusAggregate.Empty);
+        Check.Equal(1u, System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(
+                activePeaceOutsideStatus.AsSpan(8, 4)),
+            "active peace status is hidden on the unsafe PvP map");
+
+        var opposingOutsideBasic = registry.EvaluatePvpBasicAttack(
+            opposingOutsideAttacker,
+            opposingOutsideProtected,
+            now);
+        Check.True(opposingOutsideBasic.Allowed &&
+            opposingOutsideBasic.EntitlementKind == PvpEntitlementKind.OpposingFaction,
+            "basic attacks also allow opposing-faction PvP outside the Arena when map authority allows it");
+
+        var safeMapProtected = Player(405, 1, 165, -97, GameDefaults.SpartaCamp);
+        safeMapProtected.PeaceUntil = DateTimeOffset.UtcNow.AddMinutes(5);
+        Check.True(registry.TrainingDummySpawnPkMode(safeMapProtected) is null,
+            "peace-protected target in a safe map keeps protected PK projection");
+        Check.True(registry.LocalPlayerPkMode(safeMapProtected) is null,
+            "local player in a safe map keeps protected PK mode");
+        Check.Equal((byte)5, PacketBuilder.PlayerWorldSpawn(
+                safeMapProtected,
+                0x71Cu,
+                pkMode: registry.TrainingDummySpawnPkMode(safeMapProtected),
+                viewerCamp: GameDefaults.AthensCamp)[0x50],
+            "peace-protected target in capital remains protected in spawn mode");
+        var safeMapStatus = PacketBuilder.PlayerStatusEffects(
+            safeMapProtected,
+            0x717u,
+            [new ClientStatusEffect(650, 300), new ClientStatusEffect(500, 300)],
+            Godswar.Server.State.ClientStatusAggregate.Empty);
+        Check.Equal(2u, System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(
+                safeMapStatus.AsSpan(8, 4)),
+            "safe-map target keeps Harmony protection visible");
+
+        var protectedOutside = new[]
+        {
+            new ClientStatusEffect(650, 300),
+            new ClientStatusEffect(500, 300)
+        };
+        var outsidePacket = PacketBuilder.PlayerStatusEffects(
+            opposingOutsideProtected,
+            0x714u,
+            protectedOutside,
+            Godswar.Server.State.ClientStatusAggregate.Empty);
+        Check.Equal(1u, System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(outsidePacket.AsSpan(8, 4)),
+            "PvP-map target suppresses Harmony protection in the client view");
+    }
+
+    private static void CheckArenaCampProjection()
+    {
+        var sameFactionArenaPlayer = Player(300, 57, -5, 24, GameDefaults.SpartaCamp);
+        var opposingFactionArenaPlayer = Player(301, 57, -5, 28, GameDefaults.AthensCamp);
+        var sameFactionOutsideArena = Player(302, 57, -104, 96, GameDefaults.SpartaCamp);
+
+        ArenaFeatureGates.Override = false;
+        Check.Equal(GameDefaults.SpartaCamp,
+            HermesHoods.ShownCamp(sameFactionArenaPlayer, GameDefaults.SpartaCamp),
+            "gate off: same-faction camp projection stays unchanged");
+
+        var registry = new GameSessionRegistry(gameplayCatalogs: GameplayContentTestFixtures.Runtime);
+        ArenaFeatureGates.Override = true;
+        Check.True(registry.TrainingDummySpawnPkMode(sameFactionArenaPlayer) == 1,
+            "arena player is projected in hostile PK mode");
+        Check.True(registry.TrainingDummySpawnPkMode(sameFactionOutsideArena) is null,
+            "outside-arena player retains the normal protected PK mode");
+        var localArenaStatus = PacketBuilder.PlayerStatusUpdate(
+            sameFactionArenaPlayer,
+            Godswar.Server.State.ClientStatusAggregate.Empty);
+        Check.Equal((byte)1, localArenaStatus[232],
+            "local attacker status uses hostile PK mode in the arena");
+        var opposingFactionLocalStatus = PacketBuilder.PlayerStatusUpdate(
+            opposingFactionArenaPlayer,
+            Godswar.Server.State.ClientStatusAggregate.Empty);
+        Check.Equal((byte)1, opposingFactionLocalStatus[232],
+            "opposing-faction local status uses hostile PK mode in the arena");
+        var outsideLocalStatus = PacketBuilder.PlayerStatusUpdate(
+            sameFactionOutsideArena,
+            Godswar.Server.State.ClientStatusAggregate.Empty);
+        Check.Equal((byte)5, outsideLocalStatus[232],
+            "local status retains protected PK mode outside the arena");
+        ArenaFeatureGates.Override = false;
+        Check.True(registry.TrainingDummySpawnPkMode(sameFactionArenaPlayer) is null,
+            "arena remote PK-mode projection is disabled with the arena gate");
+        var disabledLocalStatus = PacketBuilder.PlayerStatusUpdate(
+            sameFactionArenaPlayer,
+            Godswar.Server.State.ClientStatusAggregate.Empty);
+        Check.Equal((byte)5, disabledLocalStatus[232],
+            "arena local PK-mode projection is disabled with the arena gate");
+        ArenaFeatureGates.Override = true;
+        Check.Equal(GameDefaults.AthensCamp,
+            HermesHoods.ShownCamp(sameFactionArenaPlayer, GameDefaults.SpartaCamp),
+            "same-faction arena opponent is presented as hostile");
+        Check.Equal(GameDefaults.AthensCamp,
+            HermesHoods.ShownCamp(opposingFactionArenaPlayer, GameDefaults.SpartaCamp),
+            "opposing-faction arena opponent keeps hostile camp presentation");
+        Check.Equal(GameDefaults.SpartaCamp,
+            HermesHoods.ShownCamp(sameFactionOutsideArena, GameDefaults.SpartaCamp),
+            "same-faction player outside the combat area keeps normal presentation");
+
+        var protectedStatus = new[]
+        {
+            new ClientStatusEffect(650, 300),
+            new ClientStatusEffect(651, 300),
+            new ClientStatusEffect(652, 300),
+            new ClientStatusEffect(500, 300)
+        };
+        var spawn = PacketBuilder.PlayerWorldSpawn(
+            sameFactionArenaPlayer,
+            0x712u,
+            protectedStatus,
+            pkMode: registry.TrainingDummySpawnPkMode(sameFactionArenaPlayer),
+            viewerCamp: GameDefaults.SpartaCamp);
+        var status = PacketBuilder.PlayerStatusEffects(
+            sameFactionArenaPlayer,
+            0x712u,
+            protectedStatus,
+            Godswar.Server.State.ClientStatusAggregate.Empty);
+        var remoteMode = PacketBuilder.RemotePlayerStatusUpdate(
+            sameFactionArenaPlayer,
+            0x712u,
+            Godswar.Server.State.ClientStatusAggregate.Empty,
+            pkMode: registry.TrainingDummySpawnPkMode(sameFactionArenaPlayer),
+            viewerCamp: GameDefaults.SpartaCamp);
+        Check.Equal(GameDefaults.AthensCamp, spawn[53],
+            "arena hostility reaches the remote player spawn frame");
+        Check.Equal(GameDefaults.AthensCamp, PacketBuilder.RemotePlayerStatusUpdate(
+                sameFactionArenaPlayer,
+                0x712u,
+                Godswar.Server.State.ClientStatusAggregate.Empty,
+                pkMode: registry.TrainingDummySpawnPkMode(sameFactionArenaPlayer),
+                viewerCamp: GameDefaults.SpartaCamp)[62],
+            "arena hostility reaches the remote player status frame");
+        Check.Equal((byte)1, spawn[0x50],
+            "arena spawn projects hostile PK mode");
+        Check.Equal((byte)1, remoteMode[232],
+            "arena status frame projects hostile PK mode");
+        Check.Equal((ushort)1, System.Buffers.Binary.BinaryPrimitives.ReadUInt16LittleEndian(spawn.AsSpan(178, 2)),
+            "arena spawn hides only client peace statuses");
+        Check.Equal(1u, System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(status.AsSpan(8, 4)),
+            "arena status update hides only client peace statuses");
+
+        var outsideStatus = PacketBuilder.PlayerStatusEffects(
+            sameFactionOutsideArena,
+            0x713u,
+            protectedStatus,
+            Godswar.Server.State.ClientStatusAggregate.Empty);
+        Check.Equal(4u, System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(outsideStatus.AsSpan(8, 4)),
+            "peace statuses remain visible outside the combat area");
+    }
     private static void CheckParnassus()
     {
         var published = BattlefieldTransporterProtocol.AthensInitialMenuSubIds;
